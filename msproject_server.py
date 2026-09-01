@@ -561,6 +561,57 @@ def add_dependency(
 
 
 @mcp.tool()
+def remove_dependency(
+    file_path: str,
+    predecessor_task_id: int,
+    successor_task_id: int,
+    dependency_type: str = "FINISH_START",
+    output_path: str = None,
+) -> str:
+    """
+    Remove a predecessor/successor link between two tasks and save.
+    Useful when restructuring a schedule -- e.g. a task became a summary task
+    with subtasks, and the old direct link needs to move to a child task instead.
+
+    Args:
+        file_path: Source project file.
+        predecessor_task_id: ID of the predecessor task in the existing link.
+        successor_task_id: ID of the successor task in the existing link.
+        dependency_type: The relation type to remove (must match what was added).
+        output_path: Where to save the result.
+    """
+    try:
+        project = _load_project(file_path)
+
+        predecessor = next((t for t in project.getTasks() if t.getUniqueID() == predecessor_task_id), None)
+        if predecessor is None:
+            return json.dumps({"error": f"Predecessor task ID {predecessor_task_id} not found"})
+
+        successor = next((t for t in project.getTasks() if t.getUniqueID() == successor_task_id), None)
+        if successor is None:
+            return json.dumps({"error": f"Successor task ID {successor_task_id} not found"})
+
+        RelationType = _cls("org.mpxj.RelationType")
+        rt = getattr(RelationType, dependency_type.upper(), RelationType.FINISH_START)
+
+        removed = successor.removePredecessor(predecessor, rt, None)
+        if not removed:
+            return json.dumps({"error": f"No {dependency_type.upper()} link found from {predecessor_task_id} to {successor_task_id}"})
+
+        out = _default_output(file_path, output_path)
+        _save(project, out)
+
+        return json.dumps({
+            "success": True,
+            "predecessor": str(predecessor.getName()),
+            "successor": str(successor.getName()),
+            "saved_to": out,
+        })
+    except Exception as e:
+        return json.dumps({"error": str(e)})
+
+
+@mcp.tool()
 def add_resource(
     file_path: str,
     name: str,
