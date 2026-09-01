@@ -1,5 +1,13 @@
 # MCP Server for Microsoft Project
 
+> **Fork note:** this is a patched fork of [albertito1998/mcp_ms_project](https://github.com/albertito1998/mcp_ms_project).
+> The original's write path didn't actually work against a real project file — three separate bugs:
+> - `requirements.txt` pinned `mcp>=1.0.0`, which resolves to `mcp` 2.x today; that release renamed `FastMCP` to `MCPServer` and the server failed to import at all. Pinned to `mcp<2`.
+> - `UniversalProjectReader` turns auto-numbering **off** when it loads an existing file (to preserve the file's own IDs), so every `addTask()`/`addResource()` call got a null ID and crashed. `_load_project` now re-enables auto-numbering after load.
+> - Once that's fixed, the visible "ID" field (row position) stops being reliable, but every write tool matched tasks/resources against it. All lookups now match on `UniqueID` instead.
+>
+> Also added `add_dependency` — the original had no way to link tasks with a predecessor/successor relationship, which is the actual point of building a schedule. Verified end-to-end: build a schedule with these tools → open the `.xml` in MS Project / Project Plan 365 (which computes the real dates and critical path — mpxj itself doesn't schedule) → read it back with `get_critical_path` and get correct results.
+
 An MCP (Model Context Protocol) server that allows Claude and other LLM clients to **read and write** Microsoft Project files (`.mpp`) directly, without needing MS Project open.
 
 Built on top of [mpxj](https://mpxj.org/) — a battle-tested Java library with Python bindings that supports `.mpp`, `.mpt`, `.mpx`, `.xml`, `.xer` and other project file formats.
@@ -24,6 +32,7 @@ Built on top of [mpxj](https://mpxj.org/) — a battle-tested Java library with 
 | Tool | Description |
 |------|-------------|
 | `add_task` | Add a new task (or subtask under a parent) |
+| `add_dependency` | Link two tasks with a predecessor/successor relationship |
 | `update_task` | Edit name, dates, % complete, duration, notes, milestone flag |
 | `delete_task` | Remove a task |
 | `add_resource` | Add a person, equipment, or material resource |

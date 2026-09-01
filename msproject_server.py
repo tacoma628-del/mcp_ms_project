@@ -88,10 +88,32 @@ def _parse_date(date_str: str):
 
 
 def _load_project(file_path: str):
+    """
+    Load a project file and re-enable auto-numbering.
+    UniversalProjectReader turns auto-ID assignment OFF on load (to preserve
+    the file's existing numbering), which means any addTask()/addResource()
+    afterwards gets a null ID and blows up downstream. Turn it back on so
+    write operations against an existing file behave the same as against a
+    freshly-created one.
+    """
     path = Path(file_path)
     if not path.exists():
         raise FileNotFoundError(f"File not found: {file_path}")
-    return _reader()().read(str(path))
+    project = _reader()().read(str(path))
+    if project is None:
+        raise ValueError(f"Could not parse project file (unsupported or corrupt): {file_path}")
+    cfg = project.getProjectConfig()
+    cfg.setAutoTaskID(True)
+    cfg.setAutoTaskUniqueID(True)
+    cfg.setAutoResourceID(True)
+    cfg.setAutoResourceUniqueID(True)
+    cfg.setAutoAssignmentUniqueID(True)
+    cfg.setAutoRelationUniqueID(True)
+    cfg.setAutoCalendarUniqueID(True)
+    cfg.setAutoOutlineLevel(True)
+    cfg.setAutoOutlineNumber(True)
+    cfg.setAutoWBS(True)
+    return project
 
 
 def _default_output(input_path: str, output_path: str | None) -> str:
@@ -357,7 +379,7 @@ def add_task(
         project = _load_project(file_path)
 
         if parent_task_id is not None:
-            parent = next((t for t in project.getTasks() if t.getID() == parent_task_id), None)
+            parent = next((t for t in project.getTasks() if t.getUniqueID() == parent_task_id), None)
             if parent is None:
                 return json.dumps({"error": f"Parent task ID {parent_task_id} not found"})
             task = parent.addTask()
@@ -384,7 +406,7 @@ def add_task(
 
         return json.dumps({
             "success": True,
-            "task_id": task.getID(),
+            "task_id": task.getUniqueID(),
             "task_name": str(task.getName()),
             "saved_to": out,
         })
@@ -422,7 +444,7 @@ def update_task(
     """
     try:
         project = _load_project(file_path)
-        task = next((t for t in project.getTasks() if t.getID() == task_id), None)
+        task = next((t for t in project.getTasks() if t.getUniqueID() == task_id), None)
         if task is None:
             return json.dumps({"error": f"Task ID {task_id} not found"})
 
@@ -466,7 +488,7 @@ def delete_task(file_path: str, task_id: int, output_path: str = None) -> str:
     """
     try:
         project = _load_project(file_path)
-        task = next((t for t in project.getTasks() if t.getID() == task_id), None)
+        task = next((t for t in project.getTasks() if t.getUniqueID() == task_id), None)
         if task is None:
             return json.dumps({"error": f"Task ID {task_id} not found"})
 
@@ -477,6 +499,63 @@ def delete_task(file_path: str, task_id: int, output_path: str = None) -> str:
         _save(project, out)
 
         return json.dumps({"success": True, "deleted_task": task_name, "saved_to": out})
+    except Exception as e:
+        return json.dumps({"error": str(e)})
+
+
+@mcp.tool()
+def add_dependency(
+    file_path: str,
+    predecessor_task_id: int,
+    successor_task_id: int,
+    dependency_type: str = "FINISH_START",
+    lag_days: float = 0,
+    output_path: str = None,
+) -> str:
+    """
+    Link two tasks with a predecessor/successor dependency and save.
+    Note: this stores the relationship but does not itself recompute dates or
+    the critical path -- open the saved .xml in MS Project / Project Plan 365
+    to let it schedule the tasks, then re-read the file to see the result.
+
+    Args:
+        file_path: Source project file.
+        predecessor_task_id: ID of the task that must happen first.
+        successor_task_id: ID of the task that depends on it.
+        dependency_type: One of FINISH_START, START_START, FINISH_FINISH, START_FINISH.
+        lag_days: Lag (or negative lead) in working days (default 0).
+        output_path: Where to save the result.
+    """
+    try:
+        project = _load_project(file_path)
+
+        predecessor = next((t for t in project.getTasks() if t.getUniqueID() == predecessor_task_id), None)
+        if predecessor is None:
+            return json.dumps({"error": f"Predecessor task ID {predecessor_task_id} not found"})
+
+        successor = next((t for t in project.getTasks() if t.getUniqueID() == successor_task_id), None)
+        if successor is None:
+            return json.dumps({"error": f"Successor task ID {successor_task_id} not found"})
+
+        RelationType = _cls("org.mpxj.RelationType")
+        rt = getattr(RelationType, dependency_type.upper(), RelationType.FINISH_START)
+
+        Relation = _cls("org.mpxj.Relation")
+        builder = Relation.Builder().predecessorTask(predecessor).successorTask(successor).type(rt)
+        if lag_days:
+            builder = builder.lag(_Duration().getInstance(lag_days, _TimeUnit().DAYS))
+        successor.addPredecessor(builder)
+
+        out = _default_output(file_path, output_path)
+        _save(project, out)
+
+        return json.dumps({
+            "success": True,
+            "predecessor": str(predecessor.getName()),
+            "successor": str(successor.getName()),
+            "type": dependency_type.upper(),
+            "saved_to": out,
+        })
     except Exception as e:
         return json.dumps({"error": str(e)})
 
@@ -531,7 +610,7 @@ def add_resource(
 
         return json.dumps({
             "success": True,
-            "resource_id": resource.getID(),
+            "resource_id": resource.getUniqueID(),
             "resource_name": str(resource.getName()),
             "saved_to": out,
         })
@@ -565,7 +644,7 @@ def update_resource(
     """
     try:
         project = _load_project(file_path)
-        resource = next((r for r in project.getResources() if r.getID() == resource_id), None)
+        resource = next((r for r in project.getResources() if r.getUniqueID() == resource_id), None)
         if resource is None:
             return json.dumps({"error": f"Resource ID {resource_id} not found"})
 
@@ -606,7 +685,7 @@ def delete_resource(file_path: str, resource_id: int, output_path: str = None) -
     """
     try:
         project = _load_project(file_path)
-        resource = next((r for r in project.getResources() if r.getID() == resource_id), None)
+        resource = next((r for r in project.getResources() if r.getUniqueID() == resource_id), None)
         if resource is None:
             return json.dumps({"error": f"Resource ID {resource_id} not found"})
 
@@ -642,11 +721,11 @@ def assign_resource(
     try:
         project = _load_project(file_path)
 
-        task = next((t for t in project.getTasks() if t.getID() == task_id), None)
+        task = next((t for t in project.getTasks() if t.getUniqueID() == task_id), None)
         if task is None:
             return json.dumps({"error": f"Task ID {task_id} not found"})
 
-        resource = next((r for r in project.getResources() if r.getID() == resource_id), None)
+        resource = next((r for r in project.getResources() if r.getUniqueID() == resource_id), None)
         if resource is None:
             return json.dumps({"error": f"Resource ID {resource_id} not found"})
 
@@ -688,8 +767,8 @@ def remove_assignment(
 
         assignment = next(
             (a for a in project.getResourceAssignments()
-             if a.getTask() is not None and a.getTask().getID() == task_id
-             and a.getResource() is not None and a.getResource().getID() == resource_id),
+             if a.getTask() is not None and a.getTask().getUniqueID() == task_id
+             and a.getResource() is not None and a.getResource().getUniqueID() == resource_id),
             None
         )
         if assignment is None:
