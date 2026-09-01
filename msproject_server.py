@@ -133,6 +133,20 @@ def _default_output(input_path: str, output_path: str | None) -> str:
 
 
 def _save(project, output_path: str) -> str:
+    """
+    Save a project, fixing up hierarchy/order first.
+    MSPDI encodes parent/child structure by task ORDER in the file plus outline
+    level, not an explicit parent reference. addTask(parent) on a project that
+    was loaded from disk appends the new child at the end of the task list
+    instead of positioning it after the parent's other descendants, which
+    silently corrupts the hierarchy on the next read (a later sibling task can
+    end up misread as the summary task instead of the real parent). Calling
+    synchronizeTaskIDToHierarchy() regroups tasks into the correct order before
+    every write, so incremental edits across separate load/save calls (which is
+    how every MCP tool call here works) don't accumulate this corruption.
+    """
+    project.getTasks().synchronizeTaskIDToHierarchy()
+    project.updateStructure()
     _mspdi_writer()().write(project, output_path)
     return output_path
 
