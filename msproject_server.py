@@ -112,7 +112,11 @@ def _load_project(file_path: str):
     cfg.setAutoCalendarUniqueID(True)
     cfg.setAutoOutlineLevel(True)
     cfg.setAutoOutlineNumber(True)
-    cfg.setAutoWBS(True)
+    # AutoWBS deliberately left off: unlike task/resource IDs, WBS codes are
+    # often a curated scheme (e.g. mapped to an approved MIL-STD-881F WBS)
+    # that must not get silently renumbered by updateStructure() on an
+    # unrelated save. Set explicit codes via update_task's wbs param instead.
+    cfg.setAutoWBS(False)
     return project
 
 
@@ -439,6 +443,7 @@ def update_task(
     percent_complete: float = None,
     milestone: bool = None,
     notes: str = None,
+    wbs: str = None,
     output_path: str = None,
 ) -> str:
     """
@@ -454,6 +459,9 @@ def update_task(
         percent_complete: New % complete 0-100 (optional).
         milestone: Set/unset milestone flag (optional).
         notes: New notes (optional).
+        wbs: Explicit WBS code (e.g. "1.3.2") to map this task to an approved
+            WBS element. Overrides the auto-generated outline number and
+            will not be silently renumbered by later edits to other tasks.
         output_path: Where to save the result.
     """
     try:
@@ -476,6 +484,8 @@ def update_task(
             task.setMilestone(milestone)
         if notes is not None:
             task.setNotes(notes)
+        if wbs is not None:
+            task.setWBS(wbs)
 
         out = _default_output(file_path, output_path)
         _save(project, out)
