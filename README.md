@@ -14,6 +14,10 @@
 
 An MCP (Model Context Protocol) server that allows Claude and other LLM clients to **read and write** Microsoft Project files (`.mpp`) directly, without needing MS Project open.
 
+## Resources
+
+- [Drone V1 WBS template](resources/Drone_V1_WBS.xlsx) — the example WBS from the "Microsoft Project, Meet Claude" video (Excel, 20-line MIL-STD-881F-style breakdown with dictionary). Ship it as-is or adapt it to your own program.
+
 Built on top of [mpxj](https://mpxj.org/) — a battle-tested Java library with Python bindings that supports `.mpp`, `.mpt`, `.mpx`, `.xml`, `.xer` and other project file formats.
 
 > **Write note:** mpxj does not support writing native `.mpp` binary files. Write operations save to **MSPDI XML** (`.xml`) format, which Microsoft Project opens natively. Open the `.xml` in MS Project and use *File → Save As* to convert back to `.mpp`.
